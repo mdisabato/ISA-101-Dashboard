@@ -5,3 +5,6 @@ installed.yaml
 template_isa_alarm_latch.yaml
 __pycache__/
 .DS_Store
+
+# site-specific generators and output
+local/
