@@ -132,7 +132,7 @@ out = [{
         'attributes': {'events': EVENTS},
     }],
 }]
-hdr = ('# ISA-101 alarm latch for the dashboard-test annunciator.\n'
+hdr = ('# ISA-101 alarm latch for the ISA-101 dashboard.\n'
        '# GENERATED from the dashboard rules (isa_l1_data) by Claude, 2026-11-15. Edits here are lost on regeneration.\n'
        '# Records each monitored point the moment it goes from normal to abnormal, so a failure that\n'
        '# clears on its own stays listed until acknowledged (event isa_alarm_ack, key = id or "all").\n')
