@@ -1,0 +1,165 @@
+# ISA-101 style trend charts for apexcharts-card (https://github.com/RomRider/apexcharts-card).
+# Entity ids are made up: replace them with yours. Paste each card into a sections view.
+#
+# The rules these cards follow:
+#   - Fixed Y axis. The range is the real operating range (link speed, plan speed, sensor range),
+#     never "whatever happened today", so a quiet day and a saturated one look different.
+#   - Grey pens. Colour appears only in the warning (amber) and alarm (red) limit lines.
+#   - A shaded band for the normal range, and limit lines with labels.
+#   - At most four pens per chart, and the same time span (24 h) on every chart.
+#   - Throughput is mirrored: receive below zero, transmit above. Each point is the 5 min peak
+#     (min of the negated receive, max of transmit), so short bursts survive a 24 h span.
+#
+# The card_mod style (needs card-mod) gives every chart the grey card face and a dark title.
+# Without the #header__title part, a dark theme draws the title in its light secondary text colour.
+
+# ---------------------------------------------------------------------------------------------
+# 1. Analogue value with a normal band and limits (here a CPU temperature, fixed 30-85 °C)
+# ---------------------------------------------------------------------------------------------
+type: custom:apexcharts-card
+graph_span: 24h
+update_interval: 1min
+header:
+  show: true
+  title: CPU temperature (°C, 5 min avg)
+  show_states: true
+  colorize_states: false
+yaxis:
+  - min: 30
+    max: 85
+    decimals: 0
+series:
+  - entity: sensor.server_cpu_temperature
+    name: CPU
+    color: "#1a1a1a"
+    stroke_width: 2
+    group_by: {func: avg, duration: 5min}
+apex_config:
+  chart: {height: 240, foreColor: "#4d4d4d"}
+  grid: {borderColor: "#c8c8c8"}
+  legend: {show: true}
+  tooltip: {x: {format: "HH:mm"}}
+  annotations:
+    yaxis:
+      - {y: 30, y2: 75, fillColor: "#b8b8b8", opacity: 0.35, borderColor: "#b8b8b8"}   # normal band
+      - {y: 75, borderColor: "#cc8800", strokeDashArray: 4,
+         label: {text: warn 75, borderColor: "#cc8800", style: {color: "#ffffff", background: "#cc8800"}}}
+      - {y: 80, borderColor: "#cc0000", strokeDashArray: 0,
+         label: {text: alarm 80, borderColor: "#cc0000", style: {color: "#ffffff", background: "#cc0000"}}}
+card_mod:
+  style: >-
+    ha-card { background: #e8e8e8; border: 1px solid #999999; border-radius: 2px; box-shadow: none; color: #1a1a1a; }
+    #header__title, #header__title span, #header__states, #header__states * { color: #1a1a1a !important; }
+
+---
+# ---------------------------------------------------------------------------------------------
+# 2. Mirrored throughput, symmetric link (a Wi-Fi radio or a switch port, fixed ±1000 Mbit/s)
+#    Receive is negated so it plots below zero; the label formatter shows it unsigned.
+#    The legend value is hidden for receive, which would otherwise show the negative number.
+#    Switch ports count from the switch's side: the port's TX is traffic *to* the device.
+#    To plot "to the device" below, use the port's TX as the receive series.
+# ---------------------------------------------------------------------------------------------
+type: custom:apexcharts-card
+graph_span: 24h
+update_interval: 1min
+header:
+  show: true
+  title: Access point uplink, Mbit/s; to AP below
+  show_states: false
+  colorize_states: false
+yaxis:
+  - id: rate
+    min: -1000
+    max: 1000
+    decimals: 0
+    apex_config:
+      labels: {formatter: "EVAL:function(v){return Math.abs(v).toFixed(0)}"}
+series:
+  - entity: sensor.switch_port_4_tx_mbps
+    name: To AP (client download)
+    color: "#1a1a1a"
+    stroke_width: 2
+    yaxis_id: rate
+    transform: "return -x;"
+    group_by: {func: min, duration: 5min}
+    show: {legend_value: false}
+  - entity: sensor.switch_port_4_rx_mbps
+    name: From AP (client upload)
+    color: "#808080"
+    stroke_width: 2
+    yaxis_id: rate
+    group_by: {func: max, duration: 5min}
+apex_config:
+  chart: {height: 240, foreColor: "#4d4d4d"}
+  grid: {borderColor: "#c8c8c8"}
+  legend: {show: true}
+  tooltip: {x: {format: "HH:mm"}}
+  annotations:
+    yaxis:
+      - {y: 0, borderColor: "#4d4d4d"}
+  stroke: {dashArray: [0, 5]}
+card_mod:
+  style: >-
+    ha-card { background: #e8e8e8; border: 1px solid #999999; border-radius: 2px; box-shadow: none; color: #1a1a1a; }
+    #header__title, #header__title span, #header__states, #header__states * { color: #1a1a1a !important; }
+
+---
+# ---------------------------------------------------------------------------------------------
+# 3. Mirrored throughput, asymmetric link (an internet plan of 1000 down / 100 up)
+#    One axis with zero in the middle: transmit 0-120 fills the top half, receive 0-1200 the
+#    bottom half. Transmit is plotted x10 (1200 / 120); the axis labels and the tooltip divide
+#    it back, so both halves read in real Mbit/s. Change K (10 here) in all three places if
+#    your plan has a different ratio. The dashed lines mark the plan speeds.
+# ---------------------------------------------------------------------------------------------
+type: custom:apexcharts-card
+graph_span: 24h
+update_interval: 1min
+header:
+  show: true
+  title: WAN, Mbit/s (TX 0-120 up, RX 0-1200 down)
+  show_states: false
+  colorize_states: false
+yaxis:
+  - id: wan
+    min: -1200
+    max: 1200
+    decimals: 0
+    apex_config:
+      tickAmount: 10
+      labels: {formatter: "EVAL:function(v){return (v > 0 ? v / 10 : Math.abs(v)).toFixed(0)}"}
+series:
+  - entity: sensor.wan_rx_mbps
+    name: Receive
+    color: "#1a1a1a"
+    stroke_width: 2
+    yaxis_id: wan
+    transform: "return -x;"
+    group_by: {func: min, duration: 5min}
+    show: {legend_value: false}
+  - entity: sensor.wan_tx_mbps
+    name: Transmit
+    color: "#808080"
+    stroke_width: 2
+    yaxis_id: wan
+    transform: "return x * 10;"
+    group_by: {func: max, duration: 5min}
+    show: {legend_value: false}
+apex_config:
+  chart: {height: 240, foreColor: "#4d4d4d"}
+  grid: {borderColor: "#c8c8c8"}
+  legend: {show: true}
+  tooltip:
+    x: {format: "HH:mm"}
+    y: {formatter: "EVAL:function(v, o){return ((o && o.seriesIndex === 1) ? v / 10 : Math.abs(v)).toFixed(1) + \" Mbit/s\"}"}
+  annotations:
+    yaxis:
+      - {y: 0, borderColor: "#4d4d4d"}
+      - {y: 1000, borderColor: "#808080", strokeDashArray: 6,
+         label: {text: plan 100, borderColor: "#808080", style: {color: "#ffffff", background: "#808080"}}}
+      - {y: -1000, borderColor: "#808080", strokeDashArray: 6,
+         label: {text: plan 1000, borderColor: "#808080", style: {color: "#ffffff", background: "#808080"}}}
+  stroke: {dashArray: [0, 5]}
+card_mod:
+  style: >-
+    ha-card { background: #e8e8e8; border: 1px solid #999999; border-radius: 2px; box-shadow: none; color: #1a1a1a; }
+    #header__title, #header__title span, #header__states, #header__states * { color: #1a1a1a !important; }

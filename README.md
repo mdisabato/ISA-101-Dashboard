@@ -30,6 +30,18 @@ triggers_update: [ ...every entity the rules use... ]
 
 `export.py` re-exports the templates from `live.json` (fetched by `build.sh`); it never exports `isa_l1_data`.
 
+## Trend charts
+
+ISA-101 keeps line trends, with rules: a fixed Y axis set to the real operating range, grey pens, colour only on the warning and alarm limit lines, a shaded normal band, and no more than four pens per chart. `examples/trend_charts.example.yaml` has three [apexcharts-card](https://github.com/RomRider/apexcharts-card) charts drawn that way:
+
+| Chart | Shows |
+|---|---|
+| Analogue value | A fixed range with the normal band and labelled warning and alarm lines |
+| Mirrored throughput | Receive below zero, transmit above, on one symmetric axis (a radio or a switch port) |
+| Asymmetric WAN | Transmit 0-120 in the top half and receive 0-1200 in the bottom half of one axis; the labels and tooltip undo the scaling |
+
+Throughput points are 5-minute peaks, so short bursts still show on a 24-hour chart. The charts use [card-mod](https://github.com/thomasloven/lovelace-card-mod) for the grey card face and a dark title: without it, a dark theme draws chart titles in a light grey.
+
 ## Alarm latch
 
 A dashboard can only show what is wrong *now*. A fault that clears on its own, like a service that dies and restarts at 3 a.m., would vanish before anyone saw it. The latch fixes that: a trigger-based template sensor, `sensor.isa_unacknowledged_alarms`, records each point the moment it goes from normal to abnormal and keeps it until it is acknowledged.
