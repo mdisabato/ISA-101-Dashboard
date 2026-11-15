@@ -1,0 +1,173 @@
+# button-card template "isa_host_row", exported from the dashboard's raw config.
+isa_host_row:
+  show_name: false
+  show_icon: false
+  show_state: false
+  styles:
+    card:
+      - padding: "0"
+      - background: "#e8e8e8"
+      - border: "1px solid #999999"
+      - border-radius: "2px"
+      - box-shadow: none
+      - color: "#1a1a1a"
+      - outline: "[[[ const s = states['input_select.isa_lamp_test']; const c = {critical: '#cc0000', warning: '#cc8800', advisory: '#0088cc'}[s ? s.state : 'off']; return c ? `4px solid ${c}` : 'none'; ]]]"
+      - outline-offset: "-4px"
+    grid:
+      - grid-template-areas: "\"row\""
+      - grid-template-columns: "1fr"
+      - grid-template-rows: auto
+    custom_fields:
+      row:
+        - width: "100%"
+        - white-space: normal
+        - text-align: left
+  custom_fields:
+    row: |-
+      [[[
+      const hostEval = c => {
+        const hst = id => states[id] ? states[id].state : undefined;
+        const hbad = s => s === undefined || s === 'unavailable' || s === 'unknown' || s === '';
+        const msgs = [], modes = [];
+        const add = (l, t, id, extra) => msgs.push({l, t, id, ...(extra || {})});
+
+        const hb = states[c.heartbeat];
+        const age = hb ? (Date.now() - new Date(hb.last_updated).getTime()) / 60000 : Infinity;
+        const stale = age > c.stale_min;
+        if (stale) add(c.stale_level || 3, hb ? `No data for ${Math.round(age)} min` : 'No data', c.heartbeat, {stale: true});
+
+        if (c.agent) {
+          const a = hst(c.agent);
+          if (hbad(a)) add(2, 'Agent not reporting', c.agent);
+          else if (a === 'unexshutdown') add(1, 'Agent reports unexpected shutdown', c.agent);
+          else if (a !== 'ready') modes.push('Agent: ' + a);
+        }
+
+        let ok = 0;
+        const svc = c.services || [];
+        svc.forEach(([id, want, label, core]) => {
+          const s = hst(id);
+          if (hbad(s)) add(1, `${label}: no data`, id);
+          else if (s === want) ok++;
+          else add(typeof core === 'number' ? core : core ? 3 : 1, `${label}: ${s}`, id);
+        });
+
+        (c.checks || []).forEach(([id, want, label, lvl]) => {
+          const s = hst(id);
+          if (hbad(s)) add(1, `${label}: no data`, id);
+          else if (![].concat(want).includes(s)) add(lvl, `${label}: ${s}`, id);
+        });
+        (c.counts || []).forEach(([id, label, lvl]) => {
+          const cs = hst(id);
+          if (hbad(cs) || cs === 'None') { add(1, `${label.charAt(0).toUpperCase() + label.slice(1)}: no data`, id); return; }
+          const n = parseFloat(cs);
+          if (n > 0) add(lvl, `${n} ${label}`, id);
+        });
+        const full = (c.usb || []).filter(([id]) => parseFloat(hst(id)) > 95);
+        if (full.length) add(2, `USB backup over 95% full: ${full.map(([, n]) => n).join(', ')}`, full[0][0]);
+        (c.modes || []).forEach(([id, label]) => {
+          const s = hst(id);
+          if (!hbad(s) && !['idle','inactive','off','none'].includes(s)) modes.push(`${label}: ${s}`);
+        });
+
+        (c.flags || []).forEach(([id, label, lvl]) => {
+          const s = hst(id);
+          if (hbad(s)) add(1, `${label}: no data`, id);
+          else if (s === 'on') add(lvl, label, id);
+        });
+        if (c.job) {
+          const j = parseFloat(hst(c.job));
+          if (!isNaN(j) && j >= (c.job_busy || 10)) modes.push(`Claude/Chrome busy: ${j.toFixed(0)}% of CPU`);
+        }
+
+        const nas = c.kind === 'nas';
+        // Temperature: alarm only, no bar on L1 (the trend lives on L2; throttling covers the Pis)
+        (() => {
+          const t = (c.temp || []).filter(id => !hbad(hst(id))).map(id => [id, parseFloat(hst(id))]);
+          if (!t.length) return;
+          const [tid, v] = t.reduce((x, y) => y[1] > x[1] ? y : x);
+          const w = nas ? 45 : 75, a = nas ? 50 : 80;
+          if (v >= w) add(v >= a ? 3 : 2, `${nas ? 'Drive' : 'CPU'} temp ${v.toFixed(1)} °C`, tid);
+        })();
+        // Swap: from a percent sensor, or from [available, total]
+        const swapPct = (() => {
+          if (c.swap) { const v = parseFloat(hst(c.swap)); return isNaN(v) ? null : v; }
+          if (c.swap_pair) { const a = parseFloat(hst(c.swap_pair[0])), t = parseFloat(hst(c.swap_pair[1])); return isNaN(a) || isNaN(t) || t <= 0 ? null : (t - a) / t * 100; }
+          return null;
+        })();
+        if (swapPct !== null && swapPct >= 75) add(swapPct >= 90 ? 3 : 2, `Swap ${swapPct.toFixed(0)}%`, c.swap || c.swap_pair[0]);
+        const cores = c.cores || 4;
+        const loadPct = (() => { const v = parseFloat(hst(c.load)); return isNaN(v) ? null : v / cores * 100; })();
+        const mets = [
+          {label: 'Load 15m %', val: loadPct, id: c.load, min: 0, max: c.load_max || 200, warn: c.load_warn || 100, alarm: c.load_alarm || 150, msg: v => `Load ${v.toFixed(0)}% of ${cores} cores (15 min)`},
+          {label: 'Memory %', ids: [c.mem], min: 0, max: 100, warn: 90, alarm: 95, note: swapPct === null ? '' : `swap ${swapPct.toFixed(0)}%`},
+          {label: nas ? 'Volume %' : 'Disk %', ids: [c.disk], min: 0, max: 100, warn: 80, alarm: 90},
+        ].map(m => {
+          const vals = m.ids ? m.ids.map(hst).filter(s => !hbad(s)).map(parseFloat) : (m.val === null || m.val === undefined ? [] : [m.val]);
+          const mid = m.id || (m.ids || [])[0];
+          if (!vals.length) { add(1, `${m.label}: no data`, mid); return {...m, v: null, lvl: 0}; }
+          const v = Math.max(...vals);
+          const lvl = v >= m.alarm ? 3 : v >= m.warn ? 2 : 0;
+          if (lvl) add(lvl, m.msg ? m.msg(v) : `${m.label} ${v.toFixed(1)}`, mid);
+          return {...m, v, lvl};
+        });
+
+        const TO_MBIT = {'Kbps':0.001,'kbit/s':0.001,'kB/s':0.008,'MB/s':8,'Mbit/s':1};
+        const fmt = v => v < 0.1 ? v.toFixed(3) : v < 1 ? v.toFixed(2) : v < 100 ? v.toFixed(1) : v.toFixed(0);
+        const HIGH = 800;
+        const net = c.net || {};
+        let rx = null;
+        if (net.rx_low) {
+          const s = states[net.rx];
+          const f = s && !hbad(s.state) ? TO_MBIT[s.attributes.unit_of_measurement] : undefined;
+          const v = f === undefined ? null : parseFloat(s.state) * f;
+          let lvl = 0;
+          if (v === null) add(1, 'RX rate: no data', net.rx);
+          else if (v < net.rx_low) { lvl = 2; add(2, `RX ${fmt(v)} Mbit/s, below ${net.rx_low}: camera streams?`, net.rx); }
+          else if (v >= HIGH) { lvl = 1; add(1, `RX ${fmt(v)} Mbit/s, near link limit`, net.rx); }
+          rx = {v, lvl, low: net.rx_low, HIGH, fmt};
+        }
+        const links = net.links || [];
+        links.forEach(([id, port, lvl]) => {
+          const s = hst(id);
+          if (hbad(s)) add(1, `Link ${port}: no data`, id);
+          else if (s !== 'on') add(lvl, `Switch link down: ${port}`, id);
+        });
+        return {msgs, modes, ok, svcN: svc.length, stale, mets, rx, ports: links.map(([, p]) => p).join(', ')};
+      };
+      const c = variables.cfg || (variables.hosts || []).find(h => h.name === variables.host);
+      if (!c) return `<div style="padding:10px 12px;color:#cc0000">Unknown host: ${variables.host}</div>`;
+      const COL = {0:'#808080',1:'#0088cc',2:'#cc8800',3:'#cc0000'};
+      const ICON = {1:'◇',2:'▲',3:'◆'};
+      const st = id => states[id] ? states[id].state : undefined;
+      const bad = s => s === undefined || s === 'unavailable' || s === 'unknown' || s === '';
+      const h = hostEval(c);
+      const stale = h.stale;
+      const pct = (v, m) => Math.max(0, Math.min(100, (v - m.min) / (m.max - m.min) * 100));
+      const bars = h.mets.map(m => {
+        if (m.v === null) return `<div style="flex:1 1 80px;min-width:80px"><div style="font-size:11px;color:#666">${m.label}</div><div style="font-size:15px;color:#666">--</div></div>`;
+        const v = m.v, lvl = m.lvl;
+        const color = stale ? '#666666' : lvl ? COL[lvl] : '#1a1a1a';
+        return `<div style="flex:1 1 80px;min-width:80px"><div style="font-size:11px;color:#666">${m.label}</div><div style="font-size:15px;font-weight:${lvl ? 700 : 400};color:${color}">${m.ids && m.ids.length > 1 ? 'max ' : ''}${v.toFixed(m.ids ? 1 : 0)}${m.note ? `<span style="font-size:11px;font-weight:400;color:#666"> · ${m.note}</span>` : ''}</div><div style="position:relative;height:8px;margin-top:5px;background:#d4d4d4;border:1px solid #999"><div style="position:absolute;top:0;bottom:0;left:0;width:${pct(m.warn, m)}%;background:#b8b8b8"></div><div style="position:absolute;top:0;bottom:0;left:${pct(m.alarm, m)}%;width:1px;background:#666"></div><div style="position:absolute;top:-3px;bottom:-3px;width:3px;left:calc(${pct(v, m)}% - 1px);background:${color}"></div></div></div>`;
+      }).join('');
+
+      const logp = v => Math.max(0, Math.min(100, (Math.log10(Math.max(v, 0.01)) + 2) / 5 * 100));
+      const netRow = (dir, r) => {
+        if (r.v === null) return `<div style="display:flex;align-items:center;gap:6px;font-size:12px;color:#666"><span style="width:18px">${dir}</span><span>--</span></div>`;
+        const color = stale ? '#666666' : r.lvl ? COL[r.lvl] : '#1a1a1a';
+        const from = r.low ? logp(r.low) : 0;
+        const ticks = [1, 10, 100].map(t => `<div style="position:absolute;top:0;bottom:0;left:${logp(t)}%;width:1px;background:#999"></div>`).join('');
+        return `<div style="display:flex;align-items:center;gap:6px;margin-top:3px"><span style="font-size:11px;color:#666;width:18px">${dir}</span><span style="font-size:13px;font-weight:${r.lvl ? 700 : 400};color:${color};width:38px;text-align:right">${r.fmt(r.v)}</span><div style="flex:1;position:relative;height:6px;background:#d4d4d4;border:1px solid #999"><div style="position:absolute;top:0;bottom:0;left:${from}%;width:${logp(r.HIGH) - from}%;background:#b8b8b8"></div>${ticks}<div style="position:absolute;top:-3px;bottom:-3px;width:3px;left:calc(${logp(r.v)}% - 1px);background:${color}"></div></div></div>`;
+      };
+      const netCol = h.rx ? `<div style="flex:1.6 1 150px;min-width:150px"><div style="font-size:11px;color:#666">Camera ingest, Mbit/s</div>${netRow('RX', h.rx)}</div>` : '';
+
+      const msgs = h.msgs.slice();
+      const top = msgs.reduce((x, m) => Math.max(x, m.l), 0);
+      const lines = msgs.sort((x, y) => y.l - x.l).map(m => `<div style="font-size:13px;font-weight:600;color:${COL[m.l]};margin-top:3px">${ICON[m.l]} ${m.t}</div>`).join('');
+      const modeLine = h.modes.length ? `<div style="font-size:12px;color:#1a1a1a;margin-top:3px">${h.modes.join(' · ')}</div>` : '';
+      const extra = (c.extra || []).map(([id, u]) => `${bad(st(id)) ? '--' : st(id)}${u}`).join(' · ');
+      const svcLine = h.svcN ? `${h.ok} of ${h.svcN} services as expected` : '';
+      const ports = h.ports;
+      return `<div style="display:flex;flex-wrap:wrap;gap:8px 16px;padding:10px 12px;border-left:6px solid ${top ? COL[top] : '#999999'}"><div style="flex:2 1 210px;min-width:0"><div style="font-size:15px;font-weight:600;color:#1a1a1a">${c.name}</div><div style="font-size:12px;color:#666">${c.role}${extra ? ' · ' + extra : ''}${ports ? ' · port ' + ports : ''}</div><div style="font-size:12px;color:#666">${svcLine}</div>${lines}${modeLine}</div><div style="flex:5 1 420px;display:flex;flex-wrap:wrap;gap:8px 14px;min-width:0">${bars}${netCol}</div></div>`;
+      ]]]
+  extra_styles: "@keyframes isaflash { 50% { opacity: 0.15; } }"

@@ -1,0 +1,103 @@
+# Example of the site rules template. Every card is given two templates, e.g.
+#   template: [isa_alarm_list, isa_l1_data]
+# so all cards read the same rules. Entity ids here are made up: replace them with yours.
+isa_l1_data:
+  variables:
+    group_names:
+      power: Power
+      site: Site
+      printer: Printer
+      hosts: Fleet
+
+    # Point groups. Each rule: [entity_id, normal, label, priority, note, options]
+    #   priority 3 = CRITICAL, 2 = WARNING, 1 = ADVISORY
+    #   normal is one of:
+    #     "on" / "Running" / [list of states]     state must be one of these
+    #     {above: 50} / {below: 1}               numeric limit
+    #     {has: OL, lacks: [LB, FSD]}            status words (e.g. a UPS status string)
+    #     {resolves: true}                       a DNS IP sensor: alarms when the lookup fails
+    #     {stale_min: 30}                        alarms when the entity stops updating
+    #     {same_as: sensor.other}                must equal another entity's state
+    #   options:
+    #     parent: entity_id       suppressed (shown greyed) while the parent is in alarm
+    #     off_window: [start, end]   off by schedule; shown as scheduled, not alarmed
+    #   entity_id null = "not instrumented": a placeholder that shows as an ADVISORY
+    l1:
+      power:
+        - [binary_sensor.generator_utility_present, "on", Utility power, 3, null, {parent: sensor.generator_monitor_health}]
+        - [sensor.generator_output_power, {below: 1}, On generator (output kW), 2, on generator, {parent: sensor.generator_monitor_health}]
+        - [sensor.generator_monitor_health, OK, Generator monitor link, 2]
+        - [sensor.ups_1_status, {has: OL, lacks: [LB, FSD, RB]}, UPS-1 on line, 3, NAS and switches]
+        - [sensor.ups_1_battery_charge, {above: 50}, UPS-1 charge, 2, null, {parent: sensor.ups_1_status}]
+      site:
+        - [binary_sensor.wan_link, "on", WAN uplink, 3]
+        - [binary_sensor.ping_gateway, "on", Gateway, 3, no reply, {parent: binary_sensor.wan_link}]
+        - [binary_sensor.internet_reachable, "on", Internet, 3, no reply, {parent: binary_sensor.ping_gateway}]
+        - [sensor.dns_lookup, {resolves: true}, DNS lookup, 2, null, {parent: binary_sensor.internet_reachable}]
+        - [null, null, Remote access, 1]
+      printer:
+        - [sensor.printer_status, [ready, printing, idle], Printer, 1, null, {off_window: ["21:00", "06:15"]}]
+        - [sensor.printer_black_ink, {above: 15}, Black ink, 1, null, {parent: sensor.printer_status}]
+
+    # Hosts shown in the fleet rows, alarm list and annunciator.
+    hosts:
+      - name: nas
+        role: File server
+        kind: nas                        # nas | pi | ha
+        heartbeat: sensor.nas_cpu_temperature
+        stale_min: 30                    # minutes without an update before "no data"
+        agent: sensor.nas_agent_status   # reports "ready" when healthy
+        temp: [sensor.nas_drive_1_temperature]
+        mem: sensor.nas_memory_used
+        disk: sensor.nas_volume_used
+        load: sensor.nas_load_15m
+        cores: 4
+        load_warn: 100                   # % of cores
+        services:                        # [entity, normal, label, core]: core true = CRITICAL, false = ADVISORY, or a number
+          - [sensor.nas_docker_mosquitto, Running, MQTT broker, true]
+        checks:                          # [entity, normal, label, priority]
+          - [update.nas_firmware, "off", Firmware update, 1]
+        counts:                          # [entity, label, priority]: alarms when above 0
+          - [sensor.nas_updates, updates, 1]
+        usb:                             # [entity, label]: alarms above 95% full
+          - [sensor.nas_usb1_used, usb1]
+        flags:                           # [entity, label, priority]: alarms when "on"
+          - [binary_sensor.nas_throttled, Throttled, 3]
+        net:
+          rx: sensor.nas_network_download
+          rx_low: 2                      # Mbit/s: alarms below this (e.g. camera streams stopped)
+          links:                         # [entity, port label, priority]
+            - [binary_sensor.switch_port_1_link, P1, 3]
+
+    # Analogue values with alarm and warning limits (shown as a bar with a sparkline).
+    metrics:
+      - id: sensor.utility_voltage
+        label: Utility voltage
+        unit: V
+        min: 200
+        max: 260
+        lo_alarm: 211
+        lo_warn: 228
+        hi_warn: 252
+        hi_alarm: 254
+        dec: 0
+        group: Power
+      - id: sensor.ups_1_runtime
+        label: UPS-1 runtime
+        unit: min
+        scale: 0.016666666666666666      # seconds to minutes
+        min: 0
+        max: 60
+        lo_alarm: 20
+        lo_warn: 36
+        on_delay: 15                     # minutes in warning before it alarms
+        group: Power
+
+    # Annunciator windows: each lights when any of its points or hosts is in alarm.
+    windows:
+      - label: "UTILITY\nPOWER LOST"
+        ids: [binary_sensor.generator_utility_present, sensor.utility_voltage]
+      - label: "WAN\nDOWN"
+        ids: [binary_sensor.wan_link, binary_sensor.ping_gateway, binary_sensor.internet_reachable, sensor.dns_lookup]
+      - label: NAS
+        hosts: [nas]

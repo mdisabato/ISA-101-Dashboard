@@ -1,0 +1,182 @@
+# button-card template "isa_annunciator", exported from the dashboard's raw config.
+isa_annunciator:
+  show_name: false
+  show_icon: false
+  show_state: false
+  styles:
+    card:
+      - padding: "0"
+      - background: "#e8e8e8"
+      - border: "1px solid #999999"
+      - border-radius: "2px"
+      - box-shadow: none
+      - color: "#1a1a1a"
+      - outline: "[[[ const s = states['input_select.isa_lamp_test']; const c = {critical: '#cc0000', warning: '#cc8800', advisory: '#0088cc'}[s ? s.state : 'off']; return c ? `4px solid ${c}` : 'none'; ]]]"
+      - outline-offset: "-4px"
+    grid:
+      - grid-template-areas: "\"a\""
+      - grid-template-columns: "1fr"
+    custom_fields:
+      a:
+        - width: "100%"
+        - text-align: left
+  extra_styles: "@keyframes isaflash { 50% { opacity: 0.15; } }"
+  custom_fields:
+    a: |-
+      [[[ const metricEval = m => {
+        const s = states[m.id];
+        const raw = s ? s.state : undefined;
+        if (raw === undefined || ['unavailable','unknown',''].includes(raw)) return {nodata: true, lvl: 1, why: 'no data'};
+        const hb = m.hb ? states[m.hb] : s;
+        const age = hb ? (Date.now() - new Date(hb.last_updated).getTime()) / 60000 : Infinity;
+        const stale = age > (m.stale_min || 30);
+        const v = parseFloat(raw) * (m.scale || 1);
+        let lvl = 0, why = '';
+        if (m.hi_alarm !== undefined && v >= m.hi_alarm) { lvl = 3; why = `high, alarm at ${m.hi_alarm}`; }
+        else if (m.lo_alarm !== undefined && v <= m.lo_alarm) { lvl = 3; why = `low, alarm at ${m.lo_alarm}`; }
+        else if (m.hi_warn !== undefined && v >= m.hi_warn) { lvl = 2; why = `above normal (${m.hi_warn})`; }
+        else if (m.lo_warn !== undefined && v <= m.lo_warn) { lvl = 2; why = `below normal (${m.lo_warn})`; }
+        let pending = '';
+        if (lvl === 2 && m.on_delay) { const held = (Date.now() - new Date(s.last_changed).getTime()) / 60000; if (held < m.on_delay) { pending = `${why}, ${Math.round(held)} of ${m.on_delay} min before it alarms`; lvl = 0; why = ''; } }
+        return {v, lvl, why, stale, age, pending};
+      };
+      const hostEval = c => {
+        const hst = id => states[id] ? states[id].state : undefined;
+        const hbad = s => s === undefined || s === 'unavailable' || s === 'unknown' || s === '';
+        const msgs = [], modes = [];
+        const add = (l, t, id, extra) => msgs.push({l, t, id, ...(extra || {})});
+
+        const hb = states[c.heartbeat];
+        const age = hb ? (Date.now() - new Date(hb.last_updated).getTime()) / 60000 : Infinity;
+        const stale = age > c.stale_min;
+        if (stale) add(c.stale_level || 3, hb ? `No data for ${Math.round(age)} min` : 'No data', c.heartbeat, {stale: true});
+
+        if (c.agent) {
+          const a = hst(c.agent);
+          if (hbad(a)) add(2, 'Agent not reporting', c.agent);
+          else if (a === 'unexshutdown') add(1, 'Agent reports unexpected shutdown', c.agent);
+          else if (a !== 'ready') modes.push('Agent: ' + a);
+        }
+
+        let ok = 0;
+        const svc = c.services || [];
+        svc.forEach(([id, want, label, core]) => {
+          const s = hst(id);
+          if (hbad(s)) add(1, `${label}: no data`, id);
+          else if (s === want) ok++;
+          else add(typeof core === 'number' ? core : core ? 3 : 1, `${label}: ${s}`, id);
+        });
+
+        (c.checks || []).forEach(([id, want, label, lvl]) => {
+          const s = hst(id);
+          if (hbad(s)) add(1, `${label}: no data`, id);
+          else if (![].concat(want).includes(s)) add(lvl, `${label}: ${s}`, id);
+        });
+        (c.counts || []).forEach(([id, label, lvl]) => {
+          const cs = hst(id);
+          if (hbad(cs) || cs === 'None') { add(1, `${label.charAt(0).toUpperCase() + label.slice(1)}: no data`, id); return; }
+          const n = parseFloat(cs);
+          if (n > 0) add(lvl, `${n} ${label}`, id);
+        });
+        const full = (c.usb || []).filter(([id]) => parseFloat(hst(id)) > 95);
+        if (full.length) add(2, `USB backup over 95% full: ${full.map(([, n]) => n).join(', ')}`, full[0][0]);
+        (c.modes || []).forEach(([id, label]) => {
+          const s = hst(id);
+          if (!hbad(s) && !['idle','inactive','off','none'].includes(s)) modes.push(`${label}: ${s}`);
+        });
+
+        (c.flags || []).forEach(([id, label, lvl]) => {
+          const s = hst(id);
+          if (hbad(s)) add(1, `${label}: no data`, id);
+          else if (s === 'on') add(lvl, label, id);
+        });
+        if (c.job) {
+          const j = parseFloat(hst(c.job));
+          if (!isNaN(j) && j >= (c.job_busy || 10)) modes.push(`Claude/Chrome busy: ${j.toFixed(0)}% of CPU`);
+        }
+
+        const nas = c.kind === 'nas';
+        // Temperature: alarm only, no bar on L1 (the trend lives on L2; throttling covers the Pis)
+        (() => {
+          const t = (c.temp || []).filter(id => !hbad(hst(id))).map(id => [id, parseFloat(hst(id))]);
+          if (!t.length) return;
+          const [tid, v] = t.reduce((x, y) => y[1] > x[1] ? y : x);
+          const w = nas ? 45 : 75, a = nas ? 50 : 80;
+          if (v >= w) add(v >= a ? 3 : 2, `${nas ? 'Drive' : 'CPU'} temp ${v.toFixed(1)} °C`, tid);
+        })();
+        // Swap: from a percent sensor, or from [available, total]
+        const swapPct = (() => {
+          if (c.swap) { const v = parseFloat(hst(c.swap)); return isNaN(v) ? null : v; }
+          if (c.swap_pair) { const a = parseFloat(hst(c.swap_pair[0])), t = parseFloat(hst(c.swap_pair[1])); return isNaN(a) || isNaN(t) || t <= 0 ? null : (t - a) / t * 100; }
+          return null;
+        })();
+        if (swapPct !== null && swapPct >= 75) add(swapPct >= 90 ? 3 : 2, `Swap ${swapPct.toFixed(0)}%`, c.swap || c.swap_pair[0]);
+        const cores = c.cores || 4;
+        const loadPct = (() => { const v = parseFloat(hst(c.load)); return isNaN(v) ? null : v / cores * 100; })();
+        const mets = [
+          {label: 'Load 15m %', val: loadPct, id: c.load, min: 0, max: c.load_max || 200, warn: c.load_warn || 100, alarm: c.load_alarm || 150, msg: v => `Load ${v.toFixed(0)}% of ${cores} cores (15 min)`},
+          {label: 'Memory %', ids: [c.mem], min: 0, max: 100, warn: 90, alarm: 95, note: swapPct === null ? '' : `swap ${swapPct.toFixed(0)}%`},
+          {label: nas ? 'Volume %' : 'Disk %', ids: [c.disk], min: 0, max: 100, warn: 80, alarm: 90},
+        ].map(m => {
+          const vals = m.ids ? m.ids.map(hst).filter(s => !hbad(s)).map(parseFloat) : (m.val === null || m.val === undefined ? [] : [m.val]);
+          const mid = m.id || (m.ids || [])[0];
+          if (!vals.length) { add(1, `${m.label}: no data`, mid); return {...m, v: null, lvl: 0}; }
+          const v = Math.max(...vals);
+          const lvl = v >= m.alarm ? 3 : v >= m.warn ? 2 : 0;
+          if (lvl) add(lvl, m.msg ? m.msg(v) : `${m.label} ${v.toFixed(1)}`, mid);
+          return {...m, v, lvl};
+        });
+
+        const TO_MBIT = {'Kbps':0.001,'kbit/s':0.001,'kB/s':0.008,'MB/s':8,'Mbit/s':1};
+        const fmt = v => v < 0.1 ? v.toFixed(3) : v < 1 ? v.toFixed(2) : v < 100 ? v.toFixed(1) : v.toFixed(0);
+        const HIGH = 800;
+        const net = c.net || {};
+        let rx = null;
+        if (net.rx_low) {
+          const s = states[net.rx];
+          const f = s && !hbad(s.state) ? TO_MBIT[s.attributes.unit_of_measurement] : undefined;
+          const v = f === undefined ? null : parseFloat(s.state) * f;
+          let lvl = 0;
+          if (v === null) add(1, 'RX rate: no data', net.rx);
+          else if (v < net.rx_low) { lvl = 2; add(2, `RX ${fmt(v)} Mbit/s, below ${net.rx_low}: camera streams?`, net.rx); }
+          else if (v >= HIGH) { lvl = 1; add(1, `RX ${fmt(v)} Mbit/s, near link limit`, net.rx); }
+          rx = {v, lvl, low: net.rx_low, HIGH, fmt};
+        }
+        const links = net.links || [];
+        links.forEach(([id, port, lvl]) => {
+          const s = hst(id);
+          if (hbad(s)) add(1, `Link ${port}: no data`, id);
+          else if (s !== 'on') add(lvl, `Switch link down: ${port}`, id);
+        });
+        return {msgs, modes, ok, svcN: svc.length, stale, mets, rx, ports: links.map(([, p]) => p).join(', ')};
+      };
+       const COL = {0:'#808080',1:'#0088cc',2:'#cc8800',3:'#cc0000'}; const ICON = {0:'○',1:'◇',2:'▲',3:'◆'}; const st = id => states[id] ? states[id].state : undefined; const bad = s => s === undefined || ['unavailable','unknown',''].includes(s); const hm = t => { const [h, m] = t.split(':').map(Number); return h * 60 + m; }; const nowMin = (() => { const d = new Date(); return d.getHours() * 60 + d.getMinutes(); })(); const inWin = w => { const a = hm(w[0]), b = hm(w[1]); return a <= b ? (nowMin >= a && nowMin < b) : (nowMin >= a || nowMin < b); }; let LOADING = false; const evalItem = it => { const [id, want, label, lvl, note] = it; const o = it[5] || {}; if (id && LOADING && !states[id]) return {ok: true, label}; if (!id) return {ok: false, l: lvl === undefined ? 1 : lvl, t: `${label}: ${note || 'not instrumented'}`, label}; const s = st(id); let ok, t; if (bad(s)) { ok = false; t = want && want.resolves ? `${label}: lookup failing` : `${label}: no data`; } else { const unit = (states[id].attributes || {}).unit_of_measurement || ''; if (want && typeof want === 'object' && !Array.isArray(want)) { if (want.same_as !== undefined) ok = s === st(want.same_as); else if (want.above !== undefined) ok = parseFloat(s) > want.above; else if (want.below !== undefined) ok = parseFloat(s) < want.below; else if (want.has !== undefined) { const tk = s.split(/\s+/); ok = tk.includes(want.has) && !(want.lacks || []).some(x => tk.includes(x)); } else if (want.resolves !== undefined) ok = true; else if (want.stale_min !== undefined) { const a = (Date.now() - new Date(states[id].last_updated).getTime()) / 60000; ok = a <= want.stale_min; if (!ok) t = `${label}: no data for ${Math.round(a)} min`; } } else ok = [].concat(want).includes(s); if (!ok && !t) t = `${label}: ${s}${unit && !isNaN(parseFloat(s)) ? ' ' + unit : ''}${note ? ' (' + note + ')' : ''}`; } if (ok) return {ok: true, label}; if (o.off_window && inWin(o.off_window)) return {ok: false, l: 0, t: `${label}: off as scheduled, due back ${o.off_window[1]}`, label, sched: true}; return {ok: false, l: bad(s) && o.nodata_level !== undefined ? o.nodata_level : lvl, t, label}; }; const evalAll = l1 => { const names = variables.group_names || {}; const flat = []; Object.keys(l1 || {}).forEach(k => (l1[k] || []).forEach(it => flat.push({k, it}))); { const ids = flat.map(f => f.it[0]).filter(Boolean); LOADING = ids.length > 0 && ids.filter(i => !states[i]).length * 2 > ids.length; } const raw = {}; flat.forEach(f => { if (f.it[0]) raw[f.it[0]] = {r: evalItem(f.it), it: f.it}; }); const resolve = (id, depth) => { const e = raw[id]; if (!e) return null; const p = (e.it[5] || {}).parent; if (!p || depth > 6 || e.r.ok) return e.r; const pr = resolve(p, depth + 1); if (pr && !pr.ok) return {...e.r, sup: true, by: pr.by || pr.label, bySched: pr.bySched || pr.sched}; return e.r; }; const base = flat.map(f => { const r = f.it[0] ? resolve(f.it[0], 0) : evalItem(f.it); return {...r, k: f.k, g: names[f.k] || f.k, id: f.it[0]}; }); const hostItems = LOADING ? [] : (variables.hosts || []).flatMap(c => { const h = hostEval(c); const pr = c.parent ? resolve(c.parent, 0) : null; const pOut = pr && !pr.ok; return h.msgs.filter(m => !(m.id && raw[m.id])).map(m => { const r = {ok: false, l: m.l, t: m.t, label: m.t, id: m.id, k: 'hosts', g: c.name}; if (m.stale) return pOut ? {...r, sup: true, by: pr.label} : r; if (h.stale) return {...r, sup: true, by: c.name + ' data'}; return r; }); }); const metItems = LOADING ? [] : (variables.metrics || []).map(m => { const r = metricEval(m); if (!r.lvl) return null; return {ok: false, l: r.lvl, t: r.nodata ? `${m.label}: no data` : `${m.label}: ${r.v.toFixed(m.dec === undefined ? 1 : m.dec)} ${m.unit || ''}, ${r.why}`, label: m.label, id: m.id, k: 'metrics', g: m.group || 'Power'}; }).filter(Boolean); return base.concat(hostItems, metItems); }; const line = (m, pre) => `<div style='font-size:13px;font-weight:${m.l ? 600 : 400};color:${COL[m.l]};margin-top:3px;${m.unack ? `animation:isaflash ${m.fo ? '0.4s' : '1s'} steps(1) infinite` : ''}'>${ICON[m.l]} ${pre ? m.g + ': ' : ''}${m.t}${m.fo ? ` <span style='font-size:10px;font-weight:700;letter-spacing:0.5px;padding:0 3px;border:1px solid ${COL[m.l]}'>FIRST OUT</span>` : ''}</div>`; const supLines = (list, pre) => { const by = {}; list.forEach(m => { const key = (pre ? m.g + ': ' : '') + m.by; (by[key] = by[key] || []).push(m.label); }); return Object.keys(by).map(b => `<div style='font-size:12px;color:#808080;margin-top:3px'>○ ${by[b].length} suppressed, ${b} is out: ${by[b].join(', ')}</div>`).join(''); }; const res = evalAll(variables.l1); const LATCH = ((states['sensor.isa_unacknowledged_alarms'] || {}).attributes || {}).events || []; const lkey = e => String(e.k).split('#')[0]; const hhmm = t => { const d = new Date(t); return isNaN(d) ? '' : d.toLocaleTimeString([], {hour: '2-digit', minute: '2-digit', hour12: false}); }; res.forEach(r => { r.unack = !r.ok && !r.sup && r.l > 0 && LATCH.some(e => lkey(e) === r.id); }); const rtn = LATCH.filter(e => !res.some(r => !r.ok && r.l > 0 && r.id === lkey(e))).map(e => ({ok: false, l: e.l || 1, t: `${e.t}, at ${hhmm(e.at)}, back to normal`, label: e.t, g: e.g, id: e.k, unack: true, rtn: true})).sort((a, b) => b.l - a.l); const FO = LATCH.length > 1 ? LATCH.slice().sort((a, b) => new Date(a.at) - new Date(b.at))[0].k : null; const foOf = r => FO !== null && (r.id === FO || r.id === lkey({k: FO})); res.forEach(r => { r.fo = !!(r.unack && foOf(r)); }); rtn.forEach(r => { r.fo = foOf(r); }); const W = variables.windows || [];
+      const LT2 = states['input_select.isa_lamp_test'];
+      const lamp = LT2 && LT2.state !== 'off' ? ({critical: 3, warning: 2, advisory: 1}[LT2.state] || 0) : 0;
+      const alarms = res.filter(r => !r.ok && !r.sup && r.l > 0).concat(rtn);
+      const base = r => String(r.id || '').split('#')[0];
+      const slot = r => {
+        let i = W.findIndex(w => (w.ids || []).includes(base(r)));
+        if (i < 0 && (r.k === 'hosts' || r.rtn)) i = W.findIndex(w => (w.hosts || []).includes(r.g));
+        return i;
+      };
+      const wst = W.map(() => ({l: 0, un: false, fo: false, act: false}));
+      let orphan = 0;
+      alarms.forEach(r => {
+        const i = slot(r);
+        if (i < 0) { if (!r.rtn) orphan++; return; }
+        const s = wst[i];
+        s.l = Math.max(s.l, r.l); s.un = s.un || !!r.unack; s.fo = s.fo || !!r.fo; if (!r.rtn) s.act = true;
+      });
+      const cells = W.map((w, i) => {
+        const s = wst[i];
+        const l = lamp || s.l;
+        const lit = l > 0;
+        const flash = lit && (lamp || s.un);
+        const sub = lamp ? '' : [s.fo ? 'FIRST OUT' : '', lit && !s.act ? 'CLEARED' : ''].filter(Boolean).join(' · ');
+        const lines = w.label.split('\n').map(x => `<div>${x}</div>`).join('');
+        return `<div style='min-height:52px;display:flex;flex-direction:column;justify-content:center;align-items:center;text-align:center;padding:4px 2px;border:1px solid ${lit ? COL[l] : '#999999'};background:${lit ? COL[l] : '#e8e8e8'};color:${lit ? '#ffffff' : '#4d4d4d'};font-size:11px;font-weight:${lit ? 700 : 600};letter-spacing:0.5px;line-height:1.25;${flash ? `animation:isaflash ${s.fo && !lamp ? '0.4s' : '1s'} steps(1) infinite;` : ''}'>${lines}${sub ? `<div style='font-size:9px;font-weight:700;margin-top:2px'>${sub}</div>` : ''}</div>`;
+      }).join('');
+      const note = orphan ? `${orphan} alarm${orphan > 1 ? 's' : ''} without a window` : '';
+      return `<div style='padding:8px 10px'><div style='display:flex;justify-content:space-between;gap:8px'><span style='font-size:14px;font-weight:600;color:#1a1a1a'>Annunciator</span><span style='font-size:12px;color:#666'>${note}</span></div><div style='display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:4px;margin-top:6px'>${cells}</div></div>`;
+      ]]]

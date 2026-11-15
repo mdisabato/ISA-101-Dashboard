@@ -1,0 +1,29 @@
+# button-card template "isa_svc_group", exported from the dashboard's raw config.
+isa_svc_group:
+  show_name: false
+  show_icon: false
+  show_state: false
+  styles:
+    card:
+      - padding: "0"
+      - background: "#e8e8e8"
+      - border: "1px solid #999999"
+      - border-radius: "2px"
+      - box-shadow: none
+      - color: "#1a1a1a"
+      - height: "100%"
+      - min-height: "96px"
+      - outline: "[[[ const s = states['input_select.isa_lamp_test']; const c = {critical: '#cc0000', warning: '#cc8800', advisory: '#0088cc'}[s ? s.state : 'off']; return c ? `4px solid ${c}` : 'none'; ]]]"
+      - outline-offset: "-4px"
+    grid:
+      - grid-template-areas: "\"s\""
+      - grid-template-columns: "1fr"
+    custom_fields:
+      s:
+        - width: "100%"
+        - text-align: left
+        - white-space: normal
+        - align-self: start
+  custom_fields:
+    s: "[[[ const s = variables.svc; const COLS = {1: '#0088cc', 2: '#cc8800', 3: '#cc0000'}; const lv = id => { for (const h of (variables.hosts || [])) for (const x of (h.services || [])) if (x[0] === id) return typeof x[3] === 'number' ? x[3] : x[3] ? 3 : 1; return s.level || 1; }; const chips = s.items.map(([id, want, label]) => { const v = states[id] ? states[id].state : undefined; const nd = v === undefined || ['unavailable', 'unknown', ''].includes(v); const ok = !nd && [].concat(want).includes(v); return {ok, l: nd ? 1 : lv(id), txt: ok ? label : `${label} ${nd ? 'no data' : 'stopped'}`}; }); const bad = chips.filter(x => !x.ok); const top = bad.reduce((a, x) => Math.max(a, x.l), 0); return `<div style='padding:8px 10px;border-left:6px solid ${top ? COLS[top] : '#999999'}'><div style='display:flex;justify-content:space-between;gap:8px'><span style='font-size:14px;font-weight:600;color:#1a1a1a'>${s.title}</span><span style='font-size:12px;color:#666'>${chips.length - bad.length} of ${chips.length} running</span></div><div style='display:flex;flex-wrap:wrap;gap:4px;margin-top:6px'>${chips.map(x => `<span style='font-size:12px;padding:2px 6px;border-radius:2px;${x.ok ? 'border:1px solid #999999;color:#4d4d4d' : `border:1px solid ${COLS[x.l]};background:${COLS[x.l]};color:#ffffff;font-weight:600`}'>${x.txt}</span>`).join('')}</div></div>`; ]]]"
+  extra_styles: "@keyframes isaflash { 50% { opacity: 0.15; } }"

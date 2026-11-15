@@ -1,0 +1,59 @@
+# button-card template "isa_metric", exported from the dashboard's raw config.
+isa_metric:
+  show_name: false
+  show_icon: false
+  show_state: false
+  styles:
+    card:
+      - padding: "0"
+      - background: "#e8e8e8"
+      - border: "1px solid #999999"
+      - border-radius: "2px"
+      - box-shadow: none
+      - color: "#1a1a1a"
+      - outline: "[[[ const s = states['input_select.isa_lamp_test']; const c = {critical: '#cc0000', warning: '#cc8800', advisory: '#0088cc'}[s ? s.state : 'off']; return c ? `4px solid ${c}` : 'none'; ]]]"
+      - outline-offset: "-4px"
+    grid:
+      - grid-template-areas: "\"m\""
+      - grid-template-columns: "1fr"
+    custom_fields:
+      m:
+        - width: "100%"
+        - text-align: left
+        - white-space: normal
+  custom_fields:
+    m: |-
+      [[[ const metricEval = m => {
+        const s = states[m.id];
+        const raw = s ? s.state : undefined;
+        if (raw === undefined || ['unavailable','unknown',''].includes(raw)) return {nodata: true, lvl: 1, why: 'no data'};
+        const hb = m.hb ? states[m.hb] : s;
+        const age = hb ? (Date.now() - new Date(hb.last_updated).getTime()) / 60000 : Infinity;
+        const stale = age > (m.stale_min || 30);
+        const v = parseFloat(raw) * (m.scale || 1);
+        let lvl = 0, why = '';
+        if (m.hi_alarm !== undefined && v >= m.hi_alarm) { lvl = 3; why = `high, alarm at ${m.hi_alarm}`; }
+        else if (m.lo_alarm !== undefined && v <= m.lo_alarm) { lvl = 3; why = `low, alarm at ${m.lo_alarm}`; }
+        else if (m.hi_warn !== undefined && v >= m.hi_warn) { lvl = 2; why = `above normal (${m.hi_warn})`; }
+        else if (m.lo_warn !== undefined && v <= m.lo_warn) { lvl = 2; why = `below normal (${m.lo_warn})`; }
+        let pending = '';
+        if (lvl === 2 && m.on_delay) { const held = (Date.now() - new Date(s.last_changed).getTime()) / 60000; if (held < m.on_delay) { pending = `${why}, ${Math.round(held)} of ${m.on_delay} min before it alarms`; lvl = 0; why = ''; } }
+        return {v, lvl, why, stale, age, pending};
+      };
+      const m = variables.m || (variables.metrics || []).find(x => x.id === variables.metric);
+      const COL = {0:'#808080',1:'#0088cc',2:'#cc8800',3:'#cc0000'};
+      const ICON = {1:'◇',2:'▲',3:'◆'};
+      const lab = `<div style='display:flex;justify-content:space-between;font-size:11px;color:#666'><span>${m.label}</span><span>${m.unit || ''}</span></div>`;
+      const r = metricEval(m);
+      if (r.nodata) return `<div style='padding:8px 10px'>${lab}<div style='font-size:18px;color:#666'>--</div><div style='font-size:11px;font-weight:600;color:${COL[1]}'>${ICON[1]} no data</div></div>`;
+      const v = r.v, lvl = r.lvl, why = r.why, stale = r.stale, age = r.age;
+      const pct = x => Math.max(0, Math.min(100, (x - m.min) / (m.max - m.min) * 100));
+      const n0 = m.lo_warn !== undefined ? m.lo_warn : m.min;
+      const n1 = m.hi_warn !== undefined ? m.hi_warn : m.max;
+      const color = stale ? '#666666' : (lvl ? COL[lvl] : '#1a1a1a');
+      const ticks = [m.lo_alarm, m.hi_alarm].filter(x => x !== undefined).map(x => `<div style='position:absolute;top:0;bottom:0;left:${pct(x)}%;width:1px;background:#666'></div>`).join('');
+      const note = stale ? `<div style='font-size:11px;color:#666'>stale, ${Math.round(age)} min old</div>` : (lvl ? `<div style='font-size:11px;font-weight:600;color:${COL[lvl]}'>${ICON[lvl]} ${why}</div>` : r.pending ? `<div style='font-size:11px;color:#666'>○ ${r.pending}</div>` : (m.note ? `<div style='font-size:11px;color:#666'>${m.note}</div>` : ''));
+      const dec = m.dec === undefined ? 1 : m.dec;
+      return `<div style='padding:8px 10px'>${lab}<div style='font-size:18px;font-weight:${lvl ? 700 : 400};color:${color}'>${v.toFixed(dec)}</div><div style='position:relative;height:8px;margin-top:4px;background:#d4d4d4;border:1px solid #999'><div style='position:absolute;top:0;bottom:0;left:${pct(n0)}%;width:${pct(n1) - pct(n0)}%;background:#b8b8b8'></div>${ticks}<div style='position:absolute;top:-3px;bottom:-3px;width:3px;left:calc(${pct(v)}% - 1px);background:${color}'></div></div>${note}</div>`;
+      ]]]
+  extra_styles: "@keyframes isaflash { 50% { opacity: 0.15; } }"

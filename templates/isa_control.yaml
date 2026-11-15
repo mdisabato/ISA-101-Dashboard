@@ -1,0 +1,24 @@
+# button-card template "isa_control", exported from the dashboard's raw config.
+isa_control:
+  show_icon: true
+  show_name: true
+  show_state: false
+  tap_action:
+    action: none
+  hold_action:
+    action: none
+  styles:
+    card:
+      - padding: "0"
+      - background: "#e8e8e8"
+      - border: "1px solid #999999"
+      - border-radius: "2px"
+      - box-shadow: none
+      - color: "#1a1a1a"
+      - padding: "8px"
+    name:
+      - font-size: "13px"
+      - color: "#1a1a1a"
+    icon:
+      - width: "22px"
+      - color: "#4d4d4d"
