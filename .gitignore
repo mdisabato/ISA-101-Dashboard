@@ -1,0 +1,7 @@
+# local settings and generated files
+latch.env
+live.json
+installed.yaml
+template_isa_alarm_latch.yaml
+__pycache__/
+.DS_Store
