@@ -21,6 +21,10 @@ isa_l1_data:
     #   options:
     #     parent: entity_id       suppressed (shown greyed) while the parent is in alarm
     #     off_window: [start, end]   off by schedule; shown as scheduled, not alarmed
+    #     state_text: {state: text}, state_level: {state: priority}
+    #                             own message and priority for one abnormal state, e.g. a USB drive's
+    #                             {usbbackup: in use for backup} at priority 1. Read only by isa_group, so
+    #                             use it in a card's own group items, not in these alarm rules
     #   entity_id null = "not instrumented": a placeholder that shows as an ADVISORY
     l1:
       power:
