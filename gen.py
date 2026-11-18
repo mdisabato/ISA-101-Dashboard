@@ -116,6 +116,10 @@ EVENTS = r"""{%- set old = (this.attributes.events | default([])) if this is def
   {{ [] if key == 'all' else old | rejectattr('k', 'eq', key) | list }}
 {%- elif old | selectattr('k', 'eq', k) | list | count > 0 -%}
   {{ old }}
+{%- elif trigger.platform in ['state', 'numeric_state'] and (not trigger.to_state or not trigger.from_state
+     or trigger.from_state.state in ['unavailable', 'unknown']) -%}
+  {#- a reload or restart: the entity was removed, re-created or had no value yet; not a real fault -#}
+  {{ old }}
 {%- else -%}
   {%- set st = trigger.to_state.state if trigger.to_state is defined and trigger.to_state else '' -%}
   {%- set u = trigger.to_state.attributes.unit_of_measurement | default('') if trigger.to_state is defined and trigger.to_state else '' -%}

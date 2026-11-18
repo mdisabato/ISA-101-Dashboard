@@ -60,9 +60,10 @@ isa_l1_data:
         services:                        # [entity, normal, label, core]: core true = CRITICAL, false = ADVISORY, or a number
           - [sensor.nas_docker_mosquitto, Running, MQTT broker, true]
         checks:                          # [entity, normal, label, priority]
-          - [update.nas_firmware, "off", Firmware update, 1]
+          - [sensor.nas_reboot_needed, "No", Reboot needed, 1]
         counts:                          # [entity, label, priority]: alarms when above 0
-          - [sensor.nas_updates, updates, 1]
+          - [sensor.nas_open_repairs, open repairs, 2]
+        # Pending software updates are not alarms: show them on the host page with isa_software instead.
         usb:                             # [entity, label]: alarms above 95% full
           - [sensor.nas_usb1_used, usb1]
         flags:                           # [entity, label, priority]: alarms when "on"

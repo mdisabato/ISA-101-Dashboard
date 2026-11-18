@@ -5,7 +5,7 @@ Tools for an ISA-101 style alarm and overview dashboard in Home Assistant: grey 
 The dashboard itself is built with [button-card](https://github.com/custom-cards/button-card) templates. Its alarm rules live in one place, the `isa_l1_data` template's variables (`l1` point groups, `hosts`, `metrics`, `windows`), and every card (alarm list, alert box, annunciator, group cards) evaluates those same rules.
 
 ## Templates
-`templates/` holds the ten button-card templates, exported from the dashboard's raw config. Paste them under `button_card_templates:` in your dashboard's raw configuration editor.
+`templates/` holds the eleven button-card templates, exported from the dashboard's raw config. Paste them under `button_card_templates:` in your dashboard's raw configuration editor.
 
 | Template | Card |
 |---|---|
@@ -17,6 +17,7 @@ The dashboard itself is built with [button-card](https://github.com/custom-cards
 | `isa_metric` | Analogue value with limits and a sparkline |
 | `isa_host_row` | One host from `hosts` |
 | `isa_svc_group` | A short list of services |
+| `isa_software` | A host's software panel: names each pending update; security red, pending too long amber, others blue |
 | `isa_facts` | Host facts: boot time, heartbeat, last update check |
 | `isa_control` | Plain grey control button |
 

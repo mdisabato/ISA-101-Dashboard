@@ -1,0 +1,78 @@
+# button-card template "isa_software", exported from the dashboard's raw config.
+isa_software:
+  show_name: false
+  show_icon: false
+  show_state: false
+  styles:
+    card:
+      - padding: "0"
+      - background: "#e8e8e8"
+      - border: "1px solid #999999"
+      - border-radius: "2px"
+      - box-shadow: none
+      - color: "#1a1a1a"
+      - outline: "[[[ const s = states['input_select.isa_lamp_test']; const c = {critical: '#cc0000', warning: '#cc8800', advisory: '#0088cc'}[s ? s.state : 'off']; return c ? `4px solid ${c}` : 'none'; ]]]"
+      - outline-offset: "-4px"
+    grid:
+      - grid-template-areas: "\"g\""
+      - grid-template-columns: "1fr"
+    custom_fields:
+      g:
+        - width: "100%"
+        - text-align: left
+        - white-space: normal
+  custom_fields:
+    g: |-
+      [[[ const COL = {0:'#808080',1:'#0088cc',2:'#cc8800',3:'#cc0000'}; const ICON = {0:'○',1:'◇',2:'▲',3:'◆'};
+      const sw = variables.sw || {}; const MAX = sw.max || 4; const STALE = sw.stale_days || 14;
+      const st = id => states[id] ? states[id].state : undefined;
+      const bad = s => s === undefined || ['unavailable','unknown',''].includes(s);
+      const esc = x => String(x == null ? '' : x).replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+      const ver = v => v == null ? '' : String(v).replace(/^\d+:/, '');
+      const days = t => t ? Math.max(0, (Date.now() - new Date(t).getTime()) / 86400000) : 0;
+      const ups = []; const probs = []; const okx = []; let unnamed = 0; let hasSec = false;
+      const add = (name, from, to, sec, since) => ups.push({name, from: ver(from), to: ver(to), sec: !!sec, age: days(since)});
+      (sw.pkgs || []).forEach(p => {
+        const e = states[p.list]; const s = st(p.list);
+        if (!e || bad(s)) { probs.push({l: 2, t: `${p.label || 'Updates'}: no data`}); return; }
+        const list = (e.attributes || {}).updates || [];
+        const se = p.sec ? states[p.sec] : null; if (p.sec) hasSec = true;
+        const secList = (se && se.attributes && se.attributes.updates) || [];
+        const secNames = new Set(secList.map(u => u.package_name));
+        list.forEach(u => { const sec = ['yes','true'].includes(String(u.security_flag).toLowerCase()) || secNames.has(u.package_name); add(u.package_name, u.installed_version, u.latest_version, sec, (sec && se ? se : e).last_changed); });
+        secList.forEach(u => { if (!list.some(x => x.package_name === u.package_name)) add(u.package_name, u.installed_version, u.latest_version, true, se.last_changed); });
+        const n = parseInt(s, 10); if (!isNaN(n) && n > list.length) unnamed += n - list.length;
+        if (se && !bad(se.state)) { const ns = parseInt(se.state, 10); const named = ups.filter(u => u.sec).length; if (!isNaN(ns) && ns > named) probs.push({l: 3, t: `${ns - named} security update${ns - named > 1 ? 's' : ''} (names not reported)`}); }
+        else if (p.sec) probs.push({l: 2, t: 'Security updates: no data'});
+      });
+      if (sw.ha) { const ex = sw.ha.exclude || []; const inc = sw.ha.include || [];
+        Object.keys(states).filter(k => k.startsWith('update.')).forEach(k => { const e = states[k]; const a = e.attributes || {};
+          if (e.state !== 'on' || ex.includes(k) || (a.device_class === 'firmware' && !inc.includes(k))) return;
+          add(String(a.title || a.friendly_name || k).replace(/ [Uu]pdate$/, ''), a.installed_version, a.latest_version, false, e.last_changed); }); }
+      (sw.items || []).forEach(([id, ok, name]) => { const s = st(id);
+        if (bad(s)) { probs.push({l: 2, t: `${name}: no data`}); return; }
+        if ([].concat(ok).includes(s)) return;
+        const a = states[id].attributes || {};
+        if (a.latest_version !== undefined) add(name, a.installed_version, a.latest_version, false, states[id].last_changed);
+        else add(`${name}: ${s}`, '', '', false, states[id].last_changed); });
+      (sw.extra || []).forEach(([id, want, label, lvl]) => { const s = st(id); let ok;
+        if (bad(s)) { probs.push({l: lvl, t: `${label}: no data`}); return; }
+        if (want && typeof want === 'object' && !Array.isArray(want)) { if (want.same_as !== undefined) ok = s === st(want.same_as); else if (want.below !== undefined) ok = parseFloat(s) < want.below; else if (want.above !== undefined) ok = parseFloat(s) > want.above; }
+        else ok = [].concat(want).includes(s);
+        if (ok) okx.push(label); else probs.push({l: lvl, t: `${label}: ${s}`}); });
+      let chk = '';
+      if (sw.checked) { const s = st(sw.checked);
+        if (bad(s)) probs.push({l: 2, t: 'Update check: no data'});
+        else { const d = new Date(s); const h = (Date.now() - d.getTime()) / 3600000;
+          chk = ' · checked ' + (h > 20 ? d.toLocaleDateString([], {month: 'short', day: 'numeric'}) + ' ' : '') + d.toLocaleTimeString([], {hour: '2-digit', minute: '2-digit', hour12: false});
+          if (h > (sw.checked_max_h || 48)) probs.push({l: 2, t: `Update check: last ran ${Math.round(h)} h ago`}); } }
+      ups.forEach(u => { u.l = u.sec ? 3 : (u.age > STALE ? 2 : 1); });
+      ups.sort((a, b) => b.l - a.l || a.name.localeCompare(b.name));
+      const nsec = ups.filter(u => u.sec).length; const total = ups.length + unnamed;
+      const top = Math.max(0, ...ups.map(u => u.l), ...probs.map(p => p.l));
+      const line = (l, t) => `<div style='font-size:13px;font-weight:${l ? 600 : 400};color:${COL[l]};margin-top:3px'>${ICON[l]} ${t}</div>`;
+      const uline = u => line(u.l, `${esc(u.name)}${u.to ? ` <span style='font-weight:400'>${esc(u.from)} → ${esc(u.to)}</span>` : ''}${u.sec ? ' (security)' : u.l === 2 ? ` (pending ${Math.floor(u.age)} d)` : ''}`);
+      const shown = ups.slice(0, MAX); const more = ups.length - shown.length + unnamed;
+      const head = total ? `${total} pending${hasSec ? `, ${nsec} security` : ''}` : 'up to date';
+      return `<div style='padding:8px 10px;border-left:6px solid ${top ? COL[top] : '#999999'}'><div style='display:flex;justify-content:space-between;gap:8px'><span style='font-size:14px;font-weight:600;color:#1a1a1a'>${esc(sw.title || 'Software')}</span><span style='font-size:12px;color:#666'>${head}${chk}</span></div>${probs.sort((a, b) => b.l - a.l).map(p => line(p.l, esc(p.t))).join('')}${shown.map(uline).join('')}${more > 0 ? `<div style='font-size:12px;color:#666;margin-top:3px'>+${more} more (tap for the full list)</div>` : ''}${total ? '' : line(0, 'No updates pending')}<div style='font-size:11px;color:#666;margin-top:3px'>${okx.length ? 'Checked: ' + okx.map(esc).join(' · ') : ''}</div></div>`; ]]]
+  extra_styles: "@keyframes isaflash { 50% { opacity: 0.15; } }"
